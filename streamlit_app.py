@@ -81,7 +81,7 @@ LOW_CONFIDENCE_THRESHOLD = 0.45        # below this avg. similarity, flag the an
 
 st.set_page_config(
     page_title="OncoRAG - Oncology Clinical Assistant",
-    page_icon=None,
+    page_icon="🩺",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -94,79 +94,184 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    html, body, [class*="css"] { font-family: 'Inter', -apple-system, sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     :root {
         --oncorag-primary: #1f6f78;
         --oncorag-primary-dark: #124c53;
+        --oncorag-primary-light: #2f8b95;
         --oncorag-accent: #e8927c;
         --oncorag-bg-soft: #f4f8f8;
+        --oncorag-ink: #16323a;
+        --oncorag-ink-soft: #5b7378;
+        --oncorag-border: rgba(18, 76, 83, 0.10);
+        --oncorag-good: #1f9d6e;
+        --oncorag-warn: #c97a1f;
+        --oncorag-bad: #c94f4f;
     }
 
-    /* App background */
-    .stApp { background: linear-gradient(180deg, #f7fafa 0%, #eef3f4 100%); }
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: var(--oncorag-ink);
+    }
 
-    /* Sidebar */
+    /* ---------------------------------------------------------------- */
+    /* Overall canvas                                                    */
+    /* ---------------------------------------------------------------- */
+    .stApp {
+        background: radial-gradient(circle at 15% 0%, #eef6f6 0%, #f7fafa 32%, #eef3f4 100%);
+    }
+    .block-container { padding-top: 2rem; max-width: 1180px; }
+
+    /* Kill Streamlit's default gray horizontal rules, use a softer one */
+    hr { border: none; border-top: 1px solid var(--oncorag-border); margin: 1rem 0; }
+
+    /* ---------------------------------------------------------------- */
+    /* Sidebar                                                           */
+    /* ---------------------------------------------------------------- */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, var(--oncorag-primary-dark) 0%, var(--oncorag-primary) 100%);
+        background: linear-gradient(190deg, var(--oncorag-primary-dark) 0%, var(--oncorag-primary) 100%);
+        border-right: none;
     }
     section[data-testid="stSidebar"] * { color: #eef7f7 !important; }
-    section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.15); }
+    section[data-testid="stSidebar"] hr { border-top-color: rgba(255,255,255,0.14); margin: 0.75rem 0; }
+    section[data-testid="stSidebar"] .block-container { padding-top: 1.6rem; }
 
-    /* Title */
-    h1 { font-weight: 700 !important; color: var(--oncorag-primary-dark); letter-spacing: -0.5px; }
+    /* Sidebar nav radio -> pill-style segmented control */
+    section[data-testid="stSidebar"] div[role="radiogroup"] { gap: 0.3rem; display: flex; flex-direction: column; }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 10px;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0;
+        transition: all 0.15s ease-in-out;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover { background: rgba(255,255,255,0.14); }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+        background: rgba(255,255,255,0.20);
+        border-color: rgba(255,255,255,0.35);
+        font-weight: 600;
+    }
 
-    /* Chat bubbles */
+    /* Sidebar status badges (see render helper in app) */
+    .oncorag-badge {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        font-size: 0.82rem; font-weight: 600;
+        padding: 0.28rem 0.6rem; border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.16);
+        margin: 0.15rem 0.25rem 0.15rem 0;
+    }
+    .oncorag-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .oncorag-dot-good { background: #58e0b0; box-shadow: 0 0 6px #58e0b0; }
+    .oncorag-dot-warn { background: #f4b860; box-shadow: 0 0 6px #f4b860; }
+    .oncorag-dot-bad  { background: #f28080; box-shadow: 0 0 6px #f28080; }
+
+    /* ---------------------------------------------------------------- */
+    /* Header banner                                                     */
+    /* ---------------------------------------------------------------- */
+    .oncorag-header {
+        background: linear-gradient(120deg, var(--oncorag-primary-dark) 0%, var(--oncorag-primary) 60%, var(--oncorag-primary-light) 100%);
+        border-radius: 18px;
+        padding: 1.6rem 1.9rem;
+        margin-bottom: 1.6rem;
+        box-shadow: 0 8px 24px rgba(18, 76, 83, 0.18);
+    }
+    .oncorag-header h1 {
+        color: #ffffff !important;
+        margin: 0 0 0.3rem 0 !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.6px;
+        font-size: 2rem !important;
+    }
+    .oncorag-header p {
+        color: rgba(255,255,255,0.85) !important;
+        margin: 0; font-size: 0.95rem; max-width: 62ch;
+    }
+
+    /* Section headers */
+    h2, h3 { color: var(--oncorag-primary-dark) !important; font-weight: 700 !important; }
+
+    /* ---------------------------------------------------------------- */
+    /* Chat bubbles                                                      */
+    /* ---------------------------------------------------------------- */
     div[data-testid="stChatMessage"] {
         border-radius: 16px;
-        padding: 0.4rem 0.2rem;
-        margin-bottom: 0.4rem;
-        box-shadow: 0 1px 3px rgba(18, 76, 83, 0.08);
+        padding: 0.85rem 1rem;
+        margin-bottom: 0.6rem;
+        box-shadow: 0 1px 6px rgba(18, 76, 83, 0.08);
+        border: 1px solid var(--oncorag-border);
         background: #ffffff;
     }
 
     /* Chat input */
     div[data-testid="stChatInput"] {
         border-radius: 14px;
-        box-shadow: 0 2px 10px rgba(18, 76, 83, 0.10);
+        box-shadow: 0 2px 14px rgba(18, 76, 83, 0.12);
+        border: 1px solid var(--oncorag-border);
     }
 
-    /* Buttons */
+    /* ---------------------------------------------------------------- */
+    /* Buttons                                                           */
+    /* ---------------------------------------------------------------- */
     .stButton > button {
         border-radius: 10px;
-        border: 1px solid rgba(18, 76, 83, 0.15);
+        border: 1px solid var(--oncorag-border);
+        font-weight: 500;
         transition: all 0.15s ease-in-out;
     }
     .stButton > button:hover {
         border-color: var(--oncorag-primary);
         color: var(--oncorag-primary);
         transform: translateY(-1px);
+        box-shadow: 0 3px 10px rgba(18, 76, 83, 0.12);
     }
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, var(--oncorag-primary) 0%, var(--oncorag-primary-dark) 100%);
         border: none;
+        font-weight: 600;
     }
 
-    /* Metrics as soft cards */
+    /* Example-question / follow-up chips look like pills */
+    .stButton > button p { font-size: 0.86rem; }
+
+    /* ---------------------------------------------------------------- */
+    /* Metrics as soft cards                                             */
+    /* ---------------------------------------------------------------- */
     div[data-testid="stMetric"] {
         background: #ffffff;
         border-radius: 14px;
-        padding: 0.8rem 1rem;
+        padding: 0.9rem 1.1rem;
         box-shadow: 0 1px 4px rgba(18, 76, 83, 0.08);
-        border: 1px solid rgba(18, 76, 83, 0.06);
+        border: 1px solid var(--oncorag-border);
     }
+    div[data-testid="stMetricLabel"] { color: var(--oncorag-ink-soft) !important; }
 
-    /* Expanders (sources) */
+    /* ---------------------------------------------------------------- */
+    /* Expanders (sources)                                               */
+    /* ---------------------------------------------------------------- */
     div[data-testid="stExpander"] {
         border-radius: 12px;
-        border: 1px solid rgba(18, 76, 83, 0.10);
+        border: 1px solid var(--oncorag-border);
         overflow: hidden;
+        background: #ffffff;
+        box-shadow: 0 1px 3px rgba(18, 76, 83, 0.05);
     }
 
-    /* Caption under title */
-    .stApp > header + div p { color: #4a6367; }
+    /* Alerts (info / warning / success / error) */
+    div[data-testid="stAlert"] { border-radius: 12px; }
+
+    /* Captions */
+    .stCaption, [data-testid="stCaptionContainer"] { color: var(--oncorag-ink-soft) !important; }
+
+    /* File uploader */
+    section[data-testid="stFileUploaderDropzone"] {
+        border-radius: 14px;
+        border: 1.5px dashed var(--oncorag-border);
+        background: #ffffff;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -480,22 +585,42 @@ def run_query(question: str, conversation_history: List[Tuple[str, str]]) -> Dic
 # Sidebar
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### OncoRAG")
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:0.5rem;margin-bottom:0.1rem;'>"
+        "<span style='font-size:1.5rem;'>🩺</span>"
+        "<span style='font-size:1.3rem;font-weight:800;letter-spacing:-0.4px;'>OncoRAG</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
     st.caption("Oncology Clinical Knowledge Assistant")
     st.divider()
 
     page = st.radio(
         "Navigation",
         ["Chat", "Knowledge Base", "Settings"],
+        format_func=lambda p: {"Chat": "💬  Chat", "Knowledge Base": "📚  Knowledge Base", "Settings": "⚙️  Settings"}[p],
         label_visibility="collapsed",
     )
 
     st.divider()
     st.markdown("**System status**")
-    st.markdown(f"**Vector index:** {'Ready' if chunk_count > 0 else 'Not built'} ({chunk_count} chunks)")
-    st.markdown(f"**OpenRouter API key:** {'Configured' if has_api_key else 'Missing'}")
+
+    index_dot = "oncorag-dot-good" if chunk_count > 0 else "oncorag-dot-bad"
+    key_dot = "oncorag-dot-good" if has_api_key else "oncorag-dot-bad"
+    badges_html = (
+        f"<span class='oncorag-badge'><span class='oncorag-dot {index_dot}'></span>"
+        f"Index: {'Ready' if chunk_count > 0 else 'Not built'} ({chunk_count} chunks)</span>"
+        f"<span class='oncorag-badge'><span class='oncorag-dot {key_dot}'></span>"
+        f"API key: {'Configured' if has_api_key else 'Missing'}</span>"
+    )
     if pipeline._load_errors:
-        st.markdown("**Pipeline modules:** Load errors detected")
+        badges_html += (
+            "<span class='oncorag-badge'><span class='oncorag-dot oncorag-dot-warn'></span>"
+            "Pipeline: load errors</span>"
+        )
+    st.markdown(badges_html, unsafe_allow_html=True)
+
+    if pipeline._load_errors:
         with st.expander("Module load errors"):
             for err in pipeline._load_errors:
                 st.caption(err)
@@ -523,10 +648,15 @@ with st.sidebar:
             st.session_state.arabic_translations = {}
             st.rerun()
 
-st.title("OncoRAG")
-st.caption(
-    "Ask grounded, cited questions against your uploaded oncology literature. "
-    "This tool summarizes documents - it does not diagnose or make treatment decisions."
+st.markdown(
+    """
+    <div class="oncorag-header">
+        <h1>🩺 OncoRAG</h1>
+        <p>Ask grounded, cited questions against your uploaded oncology literature.
+        This tool summarizes documents — it does not diagnose or make treatment decisions.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 # --------------------------------------------------------------------------
@@ -660,7 +790,7 @@ if page == "Chat":
 # Knowledge Base page
 # --------------------------------------------------------------------------
 elif page == "Knowledge Base":
-    st.subheader("Knowledge Base")
+    st.subheader("📚 Knowledge Base")
     st.write(
         "Upload oncology PDFs (guidelines, staging references, trial "
         "papers, protocols), then build the index so the Chat tab can "
@@ -715,7 +845,7 @@ elif page == "Knowledge Base":
 # Settings page
 # --------------------------------------------------------------------------
 elif page == "Settings":
-    st.subheader("Settings")
+    st.subheader("⚙️ Settings")
     st.caption("Read-only view of the current configuration.")
 
     col1, col2 = st.columns(2)
