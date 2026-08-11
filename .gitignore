@@ -1,6 +1,0 @@
-.env
-vector_database/
-documents/*.pdf
-__pycache__/
-*.pyc
-.streamlit/secrets.toml
