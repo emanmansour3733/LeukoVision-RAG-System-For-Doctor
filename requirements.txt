@@ -1,25 +1,27 @@
-# CPU-only PyTorch build. Without this, plain "torch" on PyPI resolves to
-# the CUDA/GPU build, which pulls several GB of NVIDIA driver libraries
+# CPU-only PyTorch build. Left unpinned, plain "torch" on PyPI resolves to
+# the CUDA/GPU build, pulling several GB of NVIDIA driver libraries
 # (nvidia-cublas, nvidia-cudnn, nvidia-nccl, etc.) that are useless on
 # Streamlit Community Cloud's CPU-only free tier and were very likely
-# what pushed the app past its memory/disk limit and crashed it.
+# what pushed the app past its memory limit and crashed it.
+# 2.13.0+cpu is the version confirmed available for this environment's
+# Python (3.14) on the PyTorch CPU index.
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-streamlit==1.38.0
-langchain==0.3.7
-langchain-community==0.3.5
-langchain-core==0.3.15
-langchain-text-splitters==0.3.2
-langchain-huggingface==0.1.2
-langchain-chroma==0.1.4
-chromadb==0.5.20
-sentence-transformers==3.2.1
-transformers==4.46.2
-torch==2.4.1+cpu
-pypdf==5.1.0
-python-dotenv==1.0.1
-tiktoken==0.8.0
-requests==2.32.3
-numpy==1.26.4
-pymupdf==1.24.13
-fpdf2==2.8.1
+streamlit
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+langchain-huggingface
+langchain-chroma
+chromadb
+sentence-transformers
+transformers
+pypdf
+torch==2.13.0+cpu
+python-dotenv
+tiktoken
+requests
+numpy
+pymupdf
+fpdf2
