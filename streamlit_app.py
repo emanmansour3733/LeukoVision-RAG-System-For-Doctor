@@ -55,8 +55,10 @@ except ImportError:  # pragma: no cover
 
 try:
     from fpdf import FPDF
+    from fpdf.enums import WrapMode
 except ImportError:  # pragma: no cover
     FPDF = None
+    WrapMode = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -78,6 +80,7 @@ CHUNK_OVERLAP = 150
 TOP_K = 5
 CONVERSATION_MEMORY_TURNS = 4          # how many previous Q&A pairs to keep as context
 LOW_CONFIDENCE_THRESHOLD = 0.45        # below this avg. similarity, flag the answer
+MIN_SOURCE_SIMILARITY = 0.35           # chunks below this are noise, not real matches - drop them
 
 st.set_page_config(
     page_title="OncoRAG - Oncology Clinical Assistant",
@@ -94,181 +97,184 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
     :root {
-        --oncorag-primary: #1f6f78;
-        --oncorag-primary-dark: #124c53;
-        --oncorag-primary-light: #2f8b95;
-        --oncorag-accent: #e8927c;
-        --oncorag-bg-soft: #f4f8f8;
-        --oncorag-ink: #16323a;
-        --oncorag-ink-soft: #5b7378;
-        --oncorag-border: rgba(18, 76, 83, 0.10);
-        --oncorag-good: #1f9d6e;
-        --oncorag-warn: #c97a1f;
-        --oncorag-bad: #c94f4f;
+        --oncorag-primary: #2f5d4f;
+        --oncorag-primary-deep: #1c3a30;
+        --oncorag-accent: #a8562f;
+        --oncorag-paper: #f4f6f3;
+        --oncorag-ink: #1c2b28;
+        --oncorag-ink-soft: #5f6f68;
+        --oncorag-border: #d9ded9;
+        --oncorag-good: #2f7d5c;
+        --oncorag-warn: #a8562f;
+        --oncorag-bad: #b3402f;
+        --font-display: 'Source Serif 4', Georgia, serif;
+        --font-body: 'IBM Plex Sans', -apple-system, sans-serif;
+        --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
     }
 
     html, body, [class*="css"] {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: var(--font-body);
         color: var(--oncorag-ink);
     }
 
     /* ---------------------------------------------------------------- */
-    /* Overall canvas                                                    */
+    /* Overall canvas - flat paper, no gradient wash                     */
     /* ---------------------------------------------------------------- */
-    .stApp {
-        background: radial-gradient(circle at 15% 0%, #eef6f6 0%, #f7fafa 32%, #eef3f4 100%);
-    }
-    .block-container { padding-top: 2rem; max-width: 1180px; }
+    .stApp { background: var(--oncorag-paper); }
+    .block-container { padding-top: 2rem; max-width: 1120px; }
 
-    /* Kill Streamlit's default gray horizontal rules, use a softer one */
-    hr { border: none; border-top: 1px solid var(--oncorag-border); margin: 1rem 0; }
+    hr { border: none; border-top: 1px solid var(--oncorag-border); margin: 1.1rem 0; }
 
     /* ---------------------------------------------------------------- */
-    /* Sidebar                                                           */
+    /* Sidebar - flat deep panel, no gradient                            */
     /* ---------------------------------------------------------------- */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(190deg, var(--oncorag-primary-dark) 0%, var(--oncorag-primary) 100%);
+        background: var(--oncorag-primary-deep);
         border-right: none;
     }
-    section[data-testid="stSidebar"] * { color: #eef7f7 !important; }
-    section[data-testid="stSidebar"] hr { border-top-color: rgba(255,255,255,0.14); margin: 0.75rem 0; }
+    section[data-testid="stSidebar"] * { color: #eef3f0 !important; font-family: var(--font-body); }
+    section[data-testid="stSidebar"] hr { border-top-color: rgba(255,255,255,0.14); margin: 0.9rem 0; }
     section[data-testid="stSidebar"] .block-container { padding-top: 1.6rem; }
 
-    /* Sidebar nav radio -> pill-style segmented control */
-    section[data-testid="stSidebar"] div[role="radiogroup"] { gap: 0.3rem; display: flex; flex-direction: column; }
+    /* Sidebar nav - an index list with a left rule, not a pill/glass control */
+    section[data-testid="stSidebar"] div[role="radiogroup"] { gap: 0; display: flex; flex-direction: column; }
     section[data-testid="stSidebar"] div[role="radiogroup"] label {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 10px;
-        padding: 0.5rem 0.75rem;
+        background: transparent;
+        border: none;
+        border-left: 2px solid transparent;
+        border-radius: 0;
+        padding: 0.55rem 0.75rem;
         margin-bottom: 0;
-        transition: all 0.15s ease-in-out;
+        transition: border-color 0.15s ease-in-out, background 0.15s ease-in-out;
     }
-    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover { background: rgba(255,255,255,0.14); }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover { background: rgba(255,255,255,0.05); }
     section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
     section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-        background: rgba(255,255,255,0.20);
-        border-color: rgba(255,255,255,0.35);
+        background: rgba(255,255,255,0.06);
+        border-left-color: #d8b48a;
         font-weight: 600;
     }
 
-    /* Sidebar status badges (see render helper in app) */
+    /* Status badges - footnote/evidence-tag style: mono, square, hairline */
     .oncorag-badge {
         display: inline-flex; align-items: center; gap: 0.4rem;
-        font-size: 0.82rem; font-weight: 600;
-        padding: 0.28rem 0.6rem; border-radius: 999px;
-        background: rgba(255,255,255,0.10);
-        border: 1px solid rgba(255,255,255,0.16);
-        margin: 0.15rem 0.25rem 0.15rem 0;
+        font-family: var(--font-mono);
+        font-size: 0.76rem; font-weight: 500; letter-spacing: 0.02em;
+        padding: 0.24rem 0.55rem; border-radius: 4px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.18);
+        margin: 0.15rem 0.3rem 0.15rem 0;
     }
-    .oncorag-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .oncorag-dot-good { background: #58e0b0; box-shadow: 0 0 6px #58e0b0; }
-    .oncorag-dot-warn { background: #f4b860; box-shadow: 0 0 6px #f4b860; }
-    .oncorag-dot-bad  { background: #f28080; box-shadow: 0 0 6px #f28080; }
+    .oncorag-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .oncorag-dot-good { background: #6fc79a; }
+    .oncorag-dot-warn { background: #d8a06c; }
+    .oncorag-dot-bad  { background: #d97f6c; }
 
     /* ---------------------------------------------------------------- */
-    /* Header banner                                                     */
+    /* Header banner - flat panel, serif headline, thin accent rule      */
     /* ---------------------------------------------------------------- */
     .oncorag-header {
-        background: linear-gradient(120deg, var(--oncorag-primary-dark) 0%, var(--oncorag-primary) 60%, var(--oncorag-primary-light) 100%);
-        border-radius: 18px;
-        padding: 1.6rem 1.9rem;
-        margin-bottom: 1.6rem;
-        box-shadow: 0 8px 24px rgba(18, 76, 83, 0.18);
+        background: var(--oncorag-primary-deep);
+        border-radius: 4px;
+        border-bottom: 3px solid var(--oncorag-accent);
+        padding: 1.5rem 1.8rem;
+        margin-bottom: 1.8rem;
     }
     .oncorag-header h1 {
+        font-family: var(--font-display) !important;
         color: #ffffff !important;
-        margin: 0 0 0.3rem 0 !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.6px;
-        font-size: 2rem !important;
+        margin: 0 0 0.35rem 0 !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.2px;
+        font-size: 1.9rem !important;
     }
     .oncorag-header p {
-        color: rgba(255,255,255,0.85) !important;
-        margin: 0; font-size: 0.95rem; max-width: 62ch;
+        color: rgba(255,255,255,0.78) !important;
+        margin: 0; font-size: 0.92rem; max-width: 66ch;
+        font-family: var(--font-body);
     }
 
-    /* Section headers */
-    h2, h3 { color: var(--oncorag-primary-dark) !important; font-weight: 700 !important; }
+    /* Section headers - serif display face carries the identity */
+    h2, h3 { font-family: var(--font-display) !important; color: var(--oncorag-primary-deep) !important; font-weight: 700 !important; }
 
     /* ---------------------------------------------------------------- */
-    /* Chat bubbles                                                      */
+    /* Chat bubbles - hairline, no drop shadow                           */
     /* ---------------------------------------------------------------- */
     div[data-testid="stChatMessage"] {
-        border-radius: 16px;
-        padding: 0.85rem 1rem;
-        margin-bottom: 0.6rem;
-        box-shadow: 0 1px 6px rgba(18, 76, 83, 0.08);
+        border-radius: 6px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.55rem;
+        box-shadow: none;
         border: 1px solid var(--oncorag-border);
         background: #ffffff;
     }
 
-    /* Chat input */
     div[data-testid="stChatInput"] {
-        border-radius: 14px;
-        box-shadow: 0 2px 14px rgba(18, 76, 83, 0.12);
+        border-radius: 6px;
+        box-shadow: none;
         border: 1px solid var(--oncorag-border);
     }
 
     /* ---------------------------------------------------------------- */
-    /* Buttons                                                           */
+    /* Buttons - flat, no gradient fill                                  */
     /* ---------------------------------------------------------------- */
     .stButton > button {
-        border-radius: 10px;
+        border-radius: 5px;
         border: 1px solid var(--oncorag-border);
+        font-family: var(--font-body);
         font-weight: 500;
-        transition: all 0.15s ease-in-out;
+        transition: border-color 0.15s ease-in-out, color 0.15s ease-in-out;
     }
     .stButton > button:hover {
         border-color: var(--oncorag-primary);
         color: var(--oncorag-primary);
-        transform: translateY(-1px);
-        box-shadow: 0 3px 10px rgba(18, 76, 83, 0.12);
+        transform: none;
+        box-shadow: none;
     }
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, var(--oncorag-primary) 0%, var(--oncorag-primary-dark) 100%);
-        border: none;
+        background: var(--oncorag-primary);
+        border: 1px solid var(--oncorag-primary);
         font-weight: 600;
     }
+    .stButton > button[kind="primary"]:hover { background: var(--oncorag-primary-deep); border-color: var(--oncorag-primary-deep); color: #fff; }
 
-    /* Example-question / follow-up chips look like pills */
     .stButton > button p { font-size: 0.86rem; }
 
     /* ---------------------------------------------------------------- */
-    /* Metrics as soft cards                                             */
+    /* Metrics - flat hairline panel, mono figures                       */
     /* ---------------------------------------------------------------- */
     div[data-testid="stMetric"] {
         background: #ffffff;
-        border-radius: 14px;
-        padding: 0.9rem 1.1rem;
-        box-shadow: 0 1px 4px rgba(18, 76, 83, 0.08);
+        border-radius: 6px;
+        padding: 0.85rem 1.05rem;
+        box-shadow: none;
         border: 1px solid var(--oncorag-border);
+        border-left: 3px solid var(--oncorag-primary);
     }
-    div[data-testid="stMetricLabel"] { color: var(--oncorag-ink-soft) !important; }
+    div[data-testid="stMetricLabel"] { color: var(--oncorag-ink-soft) !important; font-family: var(--font-body) !important; }
+    div[data-testid="stMetricValue"] { font-family: var(--font-mono) !important; }
 
     /* ---------------------------------------------------------------- */
-    /* Expanders (sources)                                               */
+    /* Expanders (sources) - flat hairline                               */
     /* ---------------------------------------------------------------- */
     div[data-testid="stExpander"] {
-        border-radius: 12px;
+        border-radius: 6px;
         border: 1px solid var(--oncorag-border);
         overflow: hidden;
         background: #ffffff;
-        box-shadow: 0 1px 3px rgba(18, 76, 83, 0.05);
+        box-shadow: none;
     }
 
-    /* Alerts (info / warning / success / error) */
-    div[data-testid="stAlert"] { border-radius: 12px; }
+    div[data-testid="stAlert"] { border-radius: 6px; }
 
-    /* Captions */
     .stCaption, [data-testid="stCaptionContainer"] { color: var(--oncorag-ink-soft) !important; }
 
     /* File uploader */
     section[data-testid="stFileUploaderDropzone"] {
-        border-radius: 14px;
+        border-radius: 6px;
         border: 1.5px dashed var(--oncorag-border);
         background: #ffffff;
     }
@@ -490,9 +496,9 @@ def build_session_pdf(chat_history: List[Dict]) -> Optional[bytes]:
     for message in chat_history:
         role_label = "Clinician question" if message["role"] == "user" else "OncoRAG answer"
         pdf.set_font("Helvetica", "B", 11)
-        pdf.multi_cell(0, 7, _latin1(f"{role_label}:"))
+        pdf.multi_cell(0, 7, _latin1(f"{role_label}:"), wrapmode=WrapMode.CHAR)
         pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 6, _latin1(message["content"]))
+        pdf.multi_cell(0, 6, _latin1(message["content"]), wrapmode=WrapMode.CHAR)
 
         if message.get("sources"):
             pdf.set_font("Helvetica", "I", 9)
@@ -500,6 +506,7 @@ def build_session_pdf(chat_history: List[Dict]) -> Optional[bytes]:
                 pdf.multi_cell(
                     0, 5,
                     _latin1(f"  - Source: {src['filename']} (page {src['page']})"),
+                    wrapmode=WrapMode.CHAR,
                 )
         pdf.ln(3)
 
@@ -541,7 +548,7 @@ def prepare_query(question: str, conversation_history: List[Tuple[str, str]]) ->
     api_key = pipeline.create_openrouter_client(pipeline.OPENROUTER_API_KEY)
     model = pipeline.OPENROUTER_MODEL
 
-    sources = [
+    all_sources = [
         {
             "filename": doc.metadata.get("filename", "unknown"),
             "page": doc.metadata.get("page", "unknown"),
@@ -551,6 +558,12 @@ def prepare_query(question: str, conversation_history: List[Tuple[str, str]]) ->
         }
         for doc, distance in retrieved_with_scores
     ]
+
+    # Chroma always returns k results even when nothing is actually
+    # relevant. Drop chunks below MIN_SOURCE_SIMILARITY so the UI never
+    # presents "noise" chunks as if they were real matches.
+    sources = [src for src in all_sources if src["similarity"] >= MIN_SOURCE_SIMILARITY]
+
     avg_similarity = (
         sum(src["similarity"] for src in sources) / len(sources) if sources else 0.0
     )
@@ -561,6 +574,7 @@ def prepare_query(question: str, conversation_history: List[Tuple[str, str]]) ->
         "model": model,
         "sources": sources,
         "avg_similarity": avg_similarity,
+        "no_relevant_match": len(sources) == 0,
     }
 
 
@@ -577,6 +591,7 @@ def run_query(question: str, conversation_history: List[Tuple[str, str]]) -> Dic
         "sources": prep["sources"],
         "elapsed": elapsed,
         "avg_similarity": prep["avg_similarity"],
+        "no_relevant_match": prep["no_relevant_match"],
         "follow_ups": follow_ups,
     }
 
@@ -633,7 +648,11 @@ with st.sidebar:
 
     if st.session_state.chat_history:
         st.divider()
-        pdf_bytes = build_session_pdf(st.session_state.chat_history)
+        try:
+            pdf_bytes = build_session_pdf(st.session_state.chat_history)
+        except Exception:
+            pdf_bytes = None
+            st.caption("Session PDF export isn't available right now.")
         if pdf_bytes:
             st.download_button(
                 "Export session as PDF",
@@ -691,15 +710,26 @@ if page == "Chat":
             st.markdown(message["content"])
 
             if message["role"] == "assistant":
-                if message.get("avg_similarity", 1.0) < LOW_CONFIDENCE_THRESHOLD:
-                    st.warning(
-                        "Low retrieval confidence - the source material for this "
-                        "answer was only weakly related to the question. Verify "
-                        "against primary literature before relying on it."
-                    )
-
                 if message.get("sources"):
+                    conf = message.get("avg_similarity", 0.0)
+                    conf_class = (
+                        "oncorag-dot-good" if conf >= LOW_CONFIDENCE_THRESHOLD else "oncorag-dot-warn"
+                    )
+                    st.markdown(
+                        f"<span class='oncorag-badge' style='background:rgba(47,93,79,0.07);"
+                        f"border-color:rgba(47,93,79,0.22);color:var(--oncorag-ink) !important;'>"
+                        f"<span class='oncorag-dot {conf_class}'></span>Confidence: {conf:.0%}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    if conf < LOW_CONFIDENCE_THRESHOLD:
+                        st.warning(
+                            "Low retrieval confidence - the source material for this "
+                            "answer was only weakly related to the question. Verify "
+                            "against primary literature before relying on it."
+                        )
                     render_source_block(message["sources"], key_prefix=f"msg{idx}")
+                elif message.get("no_relevant_match"):
+                    st.caption("No matching passages found in the knowledge base for this question.")
 
                 translation_col, _ = st.columns([1, 4])
                 with translation_col:
@@ -758,21 +788,33 @@ if page == "Chat":
                     "answer": answer_text,
                     "sources": prep["sources"],
                     "avg_similarity": prep["avg_similarity"],
+                    "no_relevant_match": prep["no_relevant_match"],
                     "follow_ups": follow_ups,
                 }
             except Exception as exc:  # noqa: BLE001
                 result = {
                     "answer": f"The assistant hit an error and could not generate an answer: {exc}",
                     "sources": [],
-                    "avg_similarity": 1.0,
+                    "avg_similarity": 0.0,
+                    "no_relevant_match": True,
                     "follow_ups": [],
                 }
                 st.markdown(result["answer"])
 
-            if result["avg_similarity"] < LOW_CONFIDENCE_THRESHOLD and result["sources"]:
-                st.warning("Low retrieval confidence - verify against primary literature.")
             if result["sources"]:
+                conf = result["avg_similarity"]
+                conf_class = "oncorag-dot-good" if conf >= LOW_CONFIDENCE_THRESHOLD else "oncorag-dot-warn"
+                st.markdown(
+                    f"<span class='oncorag-badge' style='background:rgba(47,93,79,0.07);"
+                    f"border-color:rgba(47,93,79,0.22);color:var(--oncorag-ink) !important;'>"
+                    f"<span class='oncorag-dot {conf_class}'></span>Confidence: {conf:.0%}</span>",
+                    unsafe_allow_html=True,
+                )
+                if conf < LOW_CONFIDENCE_THRESHOLD:
+                    st.warning("Low retrieval confidence - verify against primary literature.")
                 render_source_block(result["sources"], key_prefix="latest")
+            elif result["no_relevant_match"]:
+                st.caption("No matching passages found in the knowledge base for this question.")
 
         st.session_state.chat_history.append(
             {
@@ -780,6 +822,7 @@ if page == "Chat":
                 "content": result["answer"],
                 "sources": result["sources"],
                 "avg_similarity": result["avg_similarity"],
+                "no_relevant_match": result["no_relevant_match"],
                 "follow_ups": result["follow_ups"],
             }
         )
@@ -801,45 +844,68 @@ elif page == "Knowledge Base":
     col_a.metric("PDF pages loaded", doc_count)
     col_b.metric("Indexed chunks", chunk_count)
 
+    def build_index() -> bool:
+        """Load -> preprocess -> chunk -> embed -> index. Returns True on success."""
+        with st.spinner("Loading, chunking, embedding, and indexing documents..."):
+            try:
+                docs = pipeline.load_all_documents(DOCUMENTS_DIR)
+                cleaned = pipeline.preprocess_documents(docs)
+                chunks = pipeline.chunk_documents(cleaned, CHUNK_SIZE, CHUNK_OVERLAP)
+
+                if pipeline.database_exists(PERSIST_DIRECTORY):
+                    pipeline.delete_vector_store(PERSIST_DIRECTORY)
+
+                embedding_model = get_embedding_model()
+                pipeline.create_vector_store(chunks, embedding_model, PERSIST_DIRECTORY)
+
+                refresh_index_caches()
+                st.session_state.processed_pdf_names = {p.name for p in Path(DOCUMENTS_DIR).glob("*.pdf")}
+                st.success(f"Index built successfully: {len(chunks)} chunks indexed.")
+                return True
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Index build failed: {exc}")
+                return False
+
     os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+    if "processed_pdf_names" not in st.session_state:
+        # Assume whatever's already on disk was indexed in a prior session/run.
+        st.session_state.processed_pdf_names = (
+            {p.name for p in Path(DOCUMENTS_DIR).glob("*.pdf")} if chunk_count > 0 else set()
+        )
+
     uploaded_files = st.file_uploader(
         "Upload oncology PDFs", type=["pdf"], accept_multiple_files=True
     )
     if uploaded_files:
+        new_names = []
         for uploaded_file in uploaded_files:
             with open(os.path.join(DOCUMENTS_DIR, uploaded_file.name), "wb") as out_file:
                 out_file.write(uploaded_file.getbuffer())
-        st.success(f"Saved {len(uploaded_files)} file(s) to the documents folder.")
+            new_names.append(uploaded_file.name)
         get_doc_count.clear()
+
+        # Auto-chunk/embed/index right away - no separate manual step needed.
+        unindexed = set(new_names) - st.session_state.processed_pdf_names
+        if unindexed:
+            st.success(f"Saved {len(uploaded_files)} file(s). Indexing automatically...")
+            if build_index():
+                st.rerun()
+        else:
+            st.info("These file(s) are already indexed.")
 
     existing_pdfs = sorted(Path(DOCUMENTS_DIR).glob("*.pdf"))
     if existing_pdfs:
         with st.expander(f"Documents currently in the folder ({len(existing_pdfs)})"):
             for pdf_path in existing_pdfs:
-                st.caption(pdf_path.name)
+                indexed = pdf_path.name in st.session_state.processed_pdf_names
+                st.caption(f"{'✅' if indexed else '⏳'} {pdf_path.name}")
 
     st.divider()
-    if st.button("Build / Rebuild Index", type="primary", use_container_width=True):
+    if st.button("Rebuild Index", use_container_width=True):
         if not existing_pdfs:
             st.error("No PDF files found in the documents folder. Upload some first.")
-        else:
-            with st.spinner("Loading, chunking, embedding, and indexing documents..."):
-                try:
-                    docs = pipeline.load_all_documents(DOCUMENTS_DIR)
-                    cleaned = pipeline.preprocess_documents(docs)
-                    chunks = pipeline.chunk_documents(cleaned, CHUNK_SIZE, CHUNK_OVERLAP)
-
-                    if pipeline.database_exists(PERSIST_DIRECTORY):
-                        pipeline.delete_vector_store(PERSIST_DIRECTORY)
-
-                    embedding_model = get_embedding_model()
-                    pipeline.create_vector_store(chunks, embedding_model, PERSIST_DIRECTORY)
-
-                    refresh_index_caches()
-                    st.success(f"Index built successfully: {len(chunks)} chunks indexed.")
-                    st.rerun()
-                except Exception as exc:  # noqa: BLE001
-                    st.error(f"Index build failed: {exc}")
+        elif build_index():
+            st.rerun()
 
 # --------------------------------------------------------------------------
 # Settings page
