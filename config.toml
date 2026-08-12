@@ -1,9 +1,24 @@
 [server]
 # Stops Streamlit from watching every file in every installed package
 # (transformers alone has hundreds of submodules) for hot-reload.
-# This was the direct cause of the multi-minute startup lag: on every
-# import of sentence-transformers, Streamlit tried to inspect every
-# transformers image-processor submodule, most of which fail because
-# torchvision isn't installed - each failure is caught and harmless,
-# but there are hundreds of them, every single run.
+# Without this, Streamlit's background file watcher continuously polls
+# the entire site-packages tree (torch, transformers, chromadb,
+# sentence-transformers - tens of thousands of files) on every rerun,
+# which is CPU/IO-heavy enough on Streamlit Community Cloud's shared
+# free tier to make the app unresponsive to its own health check,
+# leading the platform to reset the connection ("connection reset by
+# peer") and kill the app mid-session.
+#
+# IMPORTANT: this file only takes effect from `.streamlit/config.toml`
+# at the repo root - a `config.toml` sitting directly in the repo root
+# (outside `.streamlit/`) is silently ignored by Streamlit.
 fileWatcherType = "none"
+
+# Belt-and-suspenders: keep the server from restarting the whole script
+# on every filesystem write under the working directory (e.g. when a
+# PDF is uploaded into documents/ or the vector_database/ index is
+# written to disk during "Rebuild Index").
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
