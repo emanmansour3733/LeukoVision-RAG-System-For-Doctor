@@ -599,6 +599,19 @@ except Exception:
 has_api_key = bool(pipeline.OPENROUTER_API_KEY)
 
 # --------------------------------------------------------------------------
+# Fail fast and loud if any pipeline module failed to load. Without this,
+# the first cache-backed call that needs a missing attribute (e.g.
+# get_chunk_count -> get_embedding_model -> pipeline.create_embedding_model)
+# blows up with a generic, unhelpful AttributeError instead of surfacing
+# the real import error that caused the module to be skipped.
+# --------------------------------------------------------------------------
+if pipeline._load_errors:
+    st.error("The app failed to load one or more pipeline modules:")
+    for err in pipeline._load_errors:
+        st.code(err)
+    st.stop()
+
+# --------------------------------------------------------------------------
 # Session state
 # --------------------------------------------------------------------------
 if "chat_history" not in st.session_state:
