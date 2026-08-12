@@ -95,58 +95,151 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------
+# Theme state. Streamlit resolves a keyed widget's value into
+# st.session_state BEFORE the script body runs, so reading it here (ahead
+# of where the toggle widget is actually drawn, in the sidebar below) still
+# reflects the click that triggered this rerun - no extra rerun/flash.
+# --------------------------------------------------------------------------
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+_THEME = {
+    "light": {
+        "paper": "#f3f5f1",
+        "surface": "#ffffff",
+        "surface_raised": "#ffffff",
+        "ink": "#101917",
+        "ink_soft": "#57645f",
+        "border": "#dde3dd",
+        "primary": "#0e5c52",
+        "primary_deep": "#093f38",
+        "primary_soft_bg": "rgba(14,92,82,0.07)",
+        "primary_soft_border": "rgba(14,92,82,0.22)",
+        "accent": "#d1652b",
+        "good": "#1f8f5f",
+        "warn": "#c17a1f",
+        "bad": "#b23b30",
+        "sidebar_text": "#eef3f0",
+        "sidebar_border": "rgba(255,255,255,0.14)",
+        "shadow": "0 1px 2px rgba(16,25,23,0.04), 0 10px 28px -16px rgba(16,25,23,0.16)",
+        "scheme": "light",
+    },
+    "dark": {
+        "paper": "#0b1211",
+        "surface": "#121a18",
+        "surface_raised": "#16201d",
+        "ink": "#e9efec",
+        "ink_soft": "#93a29c",
+        "border": "rgba(255,255,255,0.10)",
+        "primary": "#39cbb4",
+        "primary_deep": "#1f8f7e",
+        "primary_soft_bg": "rgba(57,203,180,0.10)",
+        "primary_soft_border": "rgba(57,203,180,0.28)",
+        "accent": "#ff9257",
+        "good": "#45c98a",
+        "warn": "#e0a53f",
+        "bad": "#e2645a",
+        "sidebar_text": "#eaf2ef",
+        "sidebar_border": "rgba(255,255,255,0.10)",
+        "shadow": "0 1px 2px rgba(0,0,0,0.3), 0 10px 28px -16px rgba(0,0,0,0.55)",
+        "scheme": "dark",
+    },
+}
+_T = _THEME["dark"] if st.session_state.dark_mode else _THEME["light"]
+
+# --------------------------------------------------------------------------
 # Modern theme (pure CSS - no extra dependency, no effect on pipeline logic).
 # Uses Streamlit's stable data-testid hooks so it degrades gracefully rather
 # than breaking if a future Streamlit release renames internal classes.
+# Signature detail: a slow-drifting "trace" sweep under the header, styled
+# after a monitor readout - a quiet nod to continuous, evidence-based
+# reading rather than a one-off answer.
 # --------------------------------------------------------------------------
 st.markdown(
-    """
+    f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-    :root {
-        --oncorag-primary: #2f5d4f;
-        --oncorag-primary-deep: #1c3a30;
-        --oncorag-accent: #a8562f;
-        --oncorag-paper: #f4f6f3;
-        --oncorag-ink: #1c2b28;
-        --oncorag-ink-soft: #5f6f68;
-        --oncorag-border: #d9ded9;
-        --oncorag-good: #2f7d5c;
-        --oncorag-warn: #a8562f;
-        --oncorag-bad: #b3402f;
-        --font-display: 'Source Serif 4', Georgia, serif;
-        --font-body: 'IBM Plex Sans', -apple-system, sans-serif;
-        --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-    }
+    :root {{
+        color-scheme: {_T["scheme"]};
+        --oncorag-primary: {_T["primary"]};
+        --oncorag-primary-deep: {_T["primary_deep"]};
+        --oncorag-primary-soft-bg: {_T["primary_soft_bg"]};
+        --oncorag-primary-soft-border: {_T["primary_soft_border"]};
+        --oncorag-accent: {_T["accent"]};
+        --oncorag-paper: {_T["paper"]};
+        --oncorag-surface: {_T["surface"]};
+        --oncorag-ink: {_T["ink"]};
+        --oncorag-ink-soft: {_T["ink_soft"]};
+        --oncorag-border: {_T["border"]};
+        --oncorag-good: {_T["good"]};
+        --oncorag-warn: {_T["warn"]};
+        --oncorag-bad: {_T["bad"]};
+        --oncorag-shadow: {_T["shadow"]};
+        --font-display: 'Fraunces', 'Source Serif 4', Georgia, serif;
+        --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+        --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+    }}
 
-    html, body, [class*="css"] {
+    html, body, [class*="css"] {{
         font-family: var(--font-body);
         color: var(--oncorag-ink);
-    }
+    }}
+
+    * {{ transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease; }}
+
+    @keyframes oncorag-rise {{
+        from {{ opacity: 0; transform: translateY(6px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
+    @keyframes oncorag-trace {{
+        0%   {{ background-position: -220px 0; }}
+        100% {{ background-position: 420px 0; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+        * {{ animation: none !important; transition: none !important; }}
+    }}
 
     /* ---------------------------------------------------------------- */
-    /* Overall canvas - flat paper, no gradient wash                     */
+    /* Overall canvas                                                     */
     /* ---------------------------------------------------------------- */
-    .stApp { background: var(--oncorag-paper); }
-    .block-container { padding-top: 2rem; max-width: 1120px; }
+    .stApp {{ background: var(--oncorag-paper); }}
+    .block-container {{ padding-top: 2rem; max-width: 1120px; }}
 
-    hr { border: none; border-top: 1px solid var(--oncorag-border); margin: 1.1rem 0; }
+    hr {{ border: none; border-top: 1px solid var(--oncorag-border); margin: 1.1rem 0; }}
+
+    ::selection {{ background: var(--oncorag-primary-soft-border); }}
+
+    /* Visible keyboard focus everywhere - accessibility floor */
+    a:focus-visible, button:focus-visible, input:focus-visible,
+    [role="radio"]:focus-visible, [role="button"]:focus-visible {{
+        outline: 2px solid var(--oncorag-primary) !important;
+        outline-offset: 2px;
+    }}
 
     /* ---------------------------------------------------------------- */
-    /* Sidebar - flat deep panel, no gradient                            */
+    /* Sidebar - flat deep panel                                         */
     /* ---------------------------------------------------------------- */
-    section[data-testid="stSidebar"] {
+    section[data-testid="stSidebar"] {{
         background: var(--oncorag-primary-deep);
         border-right: none;
-    }
-    section[data-testid="stSidebar"] * { color: #eef3f0 !important; font-family: var(--font-body); }
-    section[data-testid="stSidebar"] hr { border-top-color: rgba(255,255,255,0.14); margin: 0.9rem 0; }
-    section[data-testid="stSidebar"] .block-container { padding-top: 1.6rem; }
+    }}
+    section[data-testid="stSidebar"] * {{ color: {_T["sidebar_text"]} !important; font-family: var(--font-body); }}
+    section[data-testid="stSidebar"] hr {{ border-top-color: {_T["sidebar_border"]}; margin: 0.9rem 0; }}
+    section[data-testid="stSidebar"] .block-container {{ padding-top: 1.6rem; }}
+
+    /* Dark-mode toggle - styled as a deliberate switch, not a stray checkbox */
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+        font-family: var(--font-mono) !important;
+        font-size: 0.78rem !important;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        opacity: 0.75;
+    }}
 
     /* Sidebar nav - an index list with a left rule, not a pill/glass control */
-    section[data-testid="stSidebar"] div[role="radiogroup"] { gap: 0; display: flex; flex-direction: column; }
-    section[data-testid="stSidebar"] div[role="radiogroup"] label {
+    section[data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 0; display: flex; flex-direction: column; }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] label {{
         background: transparent;
         border: none;
         border-left: 2px solid transparent;
@@ -154,156 +247,187 @@ st.markdown(
         padding: 0.55rem 0.75rem;
         margin-bottom: 0;
         transition: border-color 0.15s ease-in-out, background 0.15s ease-in-out;
-    }
-    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover { background: rgba(255,255,255,0.05); }
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: rgba(255,255,255,0.05); }}
     section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
-    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
         background: rgba(255,255,255,0.06);
-        border-left-color: #d8b48a;
+        border-left-color: var(--oncorag-accent);
         font-weight: 600;
-    }
+    }}
 
     /* Status badges - footnote/evidence-tag style: mono, square, hairline */
-    .oncorag-badge {
+    .oncorag-badge {{
         display: inline-flex; align-items: center; gap: 0.4rem;
         font-family: var(--font-mono);
         font-size: 0.76rem; font-weight: 500; letter-spacing: 0.02em;
-        padding: 0.24rem 0.55rem; border-radius: 4px;
+        padding: 0.24rem 0.55rem; border-radius: 5px;
         background: rgba(255,255,255,0.06);
         border: 1px solid rgba(255,255,255,0.18);
         margin: 0.15rem 0.3rem 0.15rem 0;
-    }
-    .oncorag-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .oncorag-dot-good { background: #6fc79a; }
-    .oncorag-dot-warn { background: #d8a06c; }
-    .oncorag-dot-bad  { background: #d97f6c; }
+    }}
+    .oncorag-dot {{ width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }}
+    .oncorag-dot-good {{ background: var(--oncorag-good); }}
+    .oncorag-dot-warn {{ background: var(--oncorag-warn); }}
+    .oncorag-dot-bad  {{ background: var(--oncorag-bad); }}
 
     /* ---------------------------------------------------------------- */
-    /* Header banner - flat panel, serif headline, thin accent rule      */
+    /* Header banner - serif headline, animated trace rule as signature   */
     /* ---------------------------------------------------------------- */
-    .oncorag-header {
+    .oncorag-header {{
+        position: relative;
         background: var(--oncorag-primary-deep);
-        border-radius: 4px;
-        border-bottom: 3px solid var(--oncorag-accent);
-        padding: 1.5rem 1.8rem;
-        margin-bottom: 1.8rem;
-    }
-    .oncorag-header h1 {
+        border-radius: 10px;
+        overflow: hidden;
+        padding: 1.6rem 1.9rem 1.4rem;
+        margin-bottom: 1.9rem;
+        box-shadow: var(--oncorag-shadow);
+        animation: oncorag-rise 0.5s ease both;
+    }}
+    .oncorag-header::after {{
+        content: "";
+        position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+        background: repeating-linear-gradient(
+            90deg,
+            var(--oncorag-accent) 0px, var(--oncorag-accent) 26px,
+            transparent 26px, transparent 40px
+        );
+        background-size: 220px 3px;
+        animation: oncorag-trace 5.5s linear infinite;
+        opacity: 0.9;
+    }}
+    .oncorag-header h1 {{
         font-family: var(--font-display) !important;
         color: #ffffff !important;
         margin: 0 0 0.35rem 0 !important;
-        font-weight: 700 !important;
-        letter-spacing: -0.2px;
-        font-size: 1.9rem !important;
-    }
-    .oncorag-header p {
-        color: rgba(255,255,255,0.78) !important;
-        margin: 0; font-size: 0.92rem; max-width: 66ch;
+        font-weight: 600 !important;
+        letter-spacing: -0.3px;
+        font-size: 2.05rem !important;
+    }}
+    .oncorag-header p {{
+        color: rgba(255,255,255,0.76) !important;
+        margin: 0; font-size: 0.93rem; max-width: 66ch;
         font-family: var(--font-body);
-    }
+    }}
 
     /* Section headers - serif display face carries the identity, with a
        thin accent rule underneath as a quiet signature detail */
-    h2, h3 {
+    h2, h3 {{
         font-family: var(--font-display) !important;
         color: var(--oncorag-primary-deep) !important;
-        font-weight: 700 !important;
+        font-weight: 600 !important;
         padding-bottom: 0.4rem;
         border-bottom: 1px solid var(--oncorag-border);
         margin-bottom: 1rem !important;
-    }
+    }}
 
     /* ---------------------------------------------------------------- */
-    /* Chat bubbles - hairline, no drop shadow                           */
+    /* Chat bubbles - soft-lifted card, gentle rise-in on new messages   */
     /* ---------------------------------------------------------------- */
-    div[data-testid="stChatMessage"] {
-        border-radius: 6px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.55rem;
-        box-shadow: none;
+    div[data-testid="stChatMessage"] {{
+        border-radius: 12px;
+        padding: 0.85rem 1.05rem;
+        margin-bottom: 0.6rem;
+        box-shadow: var(--oncorag-shadow);
         border: 1px solid var(--oncorag-border);
-        background: #ffffff;
-    }
+        background: var(--oncorag-surface);
+        animation: oncorag-rise 0.35s ease both;
+    }}
 
     /* Avatar circles - flat palette colors instead of Streamlit's default clash */
-    div[data-testid="stChatMessageAvatarUser"] {
+    div[data-testid="stChatMessageAvatarUser"] {{
         background-color: var(--oncorag-primary) !important;
-    }
-    div[data-testid="stChatMessageAvatarAssistant"] {
+    }}
+    div[data-testid="stChatMessageAvatarAssistant"] {{
         background-color: var(--oncorag-primary-deep) !important;
-    }
+    }}
     div[data-testid="stChatMessageAvatarUser"] svg,
-    div[data-testid="stChatMessageAvatarAssistant"] svg { fill: #ffffff !important; }
+    div[data-testid="stChatMessageAvatarAssistant"] svg {{ fill: #ffffff !important; }}
 
-    div[data-testid="stChatInput"] {
-        border-radius: 6px;
+    div[data-testid="stChatInput"] {{
+        border-radius: 10px;
         box-shadow: none;
         border: 1px solid var(--oncorag-border);
-    }
+        background: var(--oncorag-surface);
+    }}
+    div[data-testid="stChatInput"]:focus-within {{
+        border-color: var(--oncorag-primary);
+        box-shadow: 0 0 0 3px var(--oncorag-primary-soft-bg);
+    }}
 
     /* ---------------------------------------------------------------- */
-    /* Buttons - flat, no gradient fill                                  */
+    /* Buttons - understated, with a real hover lift                     */
     /* ---------------------------------------------------------------- */
-    .stButton > button {
-        border-radius: 5px;
+    .stButton > button {{
+        border-radius: 8px;
         border: 1px solid var(--oncorag-border);
         font-family: var(--font-body);
-        font-weight: 500;
-        transition: border-color 0.15s ease-in-out, color 0.15s ease-in-out;
-    }
-    .stButton > button:hover {
+        font-weight: 600;
+        background: var(--oncorag-surface);
+        transition: border-color 0.15s ease-in-out, color 0.15s ease-in-out,
+                    transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }}
+    .stButton > button:hover {{
         border-color: var(--oncorag-primary);
         color: var(--oncorag-primary);
-        transform: none;
-        box-shadow: none;
-    }
-    .stButton > button[kind="primary"] {
+        transform: translateY(-1px);
+        box-shadow: var(--oncorag-shadow);
+    }}
+    .stButton > button:active {{ transform: translateY(0); }}
+    .stButton > button[kind="primary"] {{
         background: var(--oncorag-primary);
         border: 1px solid var(--oncorag-primary);
-        font-weight: 600;
-    }
-    .stButton > button[kind="primary"]:hover { background: var(--oncorag-primary-deep); border-color: var(--oncorag-primary-deep); color: #fff; }
+        color: #fff;
+        font-weight: 700;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        background: var(--oncorag-primary-deep);
+        border-color: var(--oncorag-primary-deep);
+        color: #fff;
+    }}
 
-    .stButton > button p { font-size: 0.86rem; }
+    .stButton > button p {{ font-size: 0.86rem; }}
 
     /* Give button rows (example-question chips, follow-ups) breathing room */
-    div[data-testid="stHorizontalBlock"] { gap: 0.6rem; }
+    div[data-testid="stHorizontalBlock"] {{ gap: 0.6rem; }}
 
     /* ---------------------------------------------------------------- */
-    /* Metrics - flat hairline panel, mono figures                       */
+    /* Metrics - lifted card, mono figures                                */
     /* ---------------------------------------------------------------- */
-    div[data-testid="stMetric"] {
-        background: #ffffff;
-        border-radius: 6px;
-        padding: 0.85rem 1.05rem;
-        box-shadow: none;
+    div[data-testid="stMetric"] {{
+        background: var(--oncorag-surface);
+        border-radius: 10px;
+        padding: 0.9rem 1.1rem;
+        box-shadow: var(--oncorag-shadow);
         border: 1px solid var(--oncorag-border);
         border-left: 3px solid var(--oncorag-primary);
-    }
-    div[data-testid="stMetricLabel"] { color: var(--oncorag-ink-soft) !important; font-family: var(--font-body) !important; }
-    div[data-testid="stMetricValue"] { font-family: var(--font-mono) !important; }
+    }}
+    div[data-testid="stMetricLabel"] {{ color: var(--oncorag-ink-soft) !important; font-family: var(--font-body) !important; }}
+    div[data-testid="stMetricValue"] {{ font-family: var(--font-mono) !important; }}
 
     /* ---------------------------------------------------------------- */
-    /* Expanders (sources) - flat hairline                               */
+    /* Expanders (sources)                                                */
     /* ---------------------------------------------------------------- */
-    div[data-testid="stExpander"] {
-        border-radius: 6px;
+    div[data-testid="stExpander"] {{
+        border-radius: 10px;
         border: 1px solid var(--oncorag-border);
         overflow: hidden;
-        background: #ffffff;
+        background: var(--oncorag-surface);
         box-shadow: none;
-    }
+    }}
 
-    div[data-testid="stAlert"] { border-radius: 6px; }
+    div[data-testid="stAlert"] {{ border-radius: 8px; }}
 
-    .stCaption, [data-testid="stCaptionContainer"] { color: var(--oncorag-ink-soft) !important; }
+    .stCaption, [data-testid="stCaptionContainer"] {{ color: var(--oncorag-ink-soft) !important; }}
 
     /* File uploader */
-    section[data-testid="stFileUploaderDropzone"] {
-        border-radius: 6px;
+    section[data-testid="stFileUploaderDropzone"] {{
+        border-radius: 10px;
         border: 1.5px dashed var(--oncorag-border);
-        background: #ffffff;
-    }
+        background: var(--oncorag-surface);
+        transition: border-color 0.15s ease-in-out;
+    }}
+    section[data-testid="stFileUploaderDropzone"]:hover {{ border-color: var(--oncorag-primary); }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -726,6 +850,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.caption("Oncology Clinical Knowledge Assistant")
+    st.toggle("Dark mode", key="dark_mode")
     st.divider()
 
     page = st.radio(
@@ -834,8 +959,8 @@ if page == "Chat":
                         "oncorag-dot-good" if conf >= LOW_CONFIDENCE_THRESHOLD else "oncorag-dot-warn"
                     )
                     st.markdown(
-                        f"<span class='oncorag-badge' style='background:rgba(47,93,79,0.07);"
-                        f"border-color:rgba(47,93,79,0.22);color:var(--oncorag-ink) !important;'>"
+                        f"<span class='oncorag-badge' style='background:var(--oncorag-primary-soft-bg);"
+                        f"border-color:var(--oncorag-primary-soft-border);color:var(--oncorag-ink) !important;'>"
                         f"<span class='oncorag-dot {conf_class}'></span>Confidence: {conf:.0%}</span>",
                         unsafe_allow_html=True,
                     )
@@ -923,8 +1048,8 @@ if page == "Chat":
                 conf = result["avg_similarity"]
                 conf_class = "oncorag-dot-good" if conf >= LOW_CONFIDENCE_THRESHOLD else "oncorag-dot-warn"
                 st.markdown(
-                    f"<span class='oncorag-badge' style='background:rgba(47,93,79,0.07);"
-                    f"border-color:rgba(47,93,79,0.22);color:var(--oncorag-ink) !important;'>"
+                    f"<span class='oncorag-badge' style='background:var(--oncorag-primary-soft-bg);"
+                    f"border-color:var(--oncorag-primary-soft-border);color:var(--oncorag-ink) !important;'>"
                     f"<span class='oncorag-dot {conf_class}'></span>Confidence: {conf:.0%}</span>",
                     unsafe_allow_html=True,
                 )
