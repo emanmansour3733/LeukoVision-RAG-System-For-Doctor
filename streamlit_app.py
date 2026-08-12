@@ -697,7 +697,7 @@ def translate_to_arabic(answer: str, api_key: str, model: str) -> str:
         return "_Translation timed out or failed - please try again._"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=20)
 def render_pdf_page(source_path: str, page_number, zoom: float = 1.6) -> Optional[bytes]:
     """Render one page of a source PDF to PNG bytes, for on-demand verification.
 
@@ -723,6 +723,7 @@ def render_pdf_page(source_path: str, page_number, zoom: float = 1.6) -> Optiona
         return None
 
 
+@st.cache_data(show_spinner=False)
 def build_session_pdf(chat_history: List[Dict]) -> Optional[bytes]:
     """Export the visible chat session as a simple PDF report."""
     if FPDF is None or not chat_history:
