@@ -35,6 +35,7 @@ Deployment:
     (see .env.example) - 08_llm.py loads it automatically.
 """
 
+import concurrent.futures
 import importlib.util
 import os
 import re
@@ -81,6 +82,8 @@ TOP_K = 5
 CONVERSATION_MEMORY_TURNS = 4          # how many previous Q&A pairs to keep as context
 LOW_CONFIDENCE_THRESHOLD = 0.45        # below this avg. similarity, flag the answer
 MIN_SOURCE_SIMILARITY = 0.35           # chunks below this are noise, not real matches - drop them
+FOLLOWUP_TIMEOUT_SECONDS = 20          # bail on the follow-up-question call rather than hang forever
+TRANSLATE_TIMEOUT_SECONDS = 30         # translation is a longer generation, give it a bit more room
 AVATAR_USER = "🩺"
 AVATAR_ASSISTANT = "⚕️"
 
@@ -497,6 +500,22 @@ def _distance_to_similarity(distance: float) -> float:
     return max(0.0, min(1.0, 1 - (distance / 2)))
 
 
+def _call_with_timeout(fn, timeout_seconds: float, *args, **kwargs):
+    """Run fn(*args, **kwargs) in a worker thread and bail after timeout_seconds.
+
+    Raises on both real exceptions and timeouts (concurrent.futures.TimeoutError
+    inherits from Exception too) - callers should catch broadly. The
+    worker thread is not joined - if it's stuck on a network call it's
+    left to finish or die on its own rather than blocking the app.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn, *args, **kwargs)
+    try:
+        return future.result(timeout=timeout_seconds)
+    finally:
+        executor.shutdown(wait=False)
+
+
 def generate_follow_up_questions(question: str, answer: str, api_key: str, model: str) -> List[str]:
     """Ask the model for 3 natural follow-up questions a clinician might ask next.
 
@@ -511,7 +530,9 @@ def generate_follow_up_questions(question: str, answer: str, api_key: str, model
         f"Question: {question}\n\nAnswer: {answer}"
     )
     try:
-        raw = pipeline.generate_answer(api_key, model, prompt, max_output_tokens=150)
+        raw = _call_with_timeout(
+            pipeline.generate_answer, FOLLOWUP_TIMEOUT_SECONDS, api_key, model, prompt, max_output_tokens=150
+        )
     except Exception:
         return []
 
@@ -533,7 +554,12 @@ def translate_to_arabic(answer: str, api_key: str, model: str) -> str:
         "only the translated answer.\n\n"
         f"{answer}"
     )
-    return pipeline.generate_answer(api_key, model, prompt, max_output_tokens=800)
+    try:
+        return _call_with_timeout(
+            pipeline.generate_answer, TRANSLATE_TIMEOUT_SECONDS, api_key, model, prompt, max_output_tokens=800
+        )
+    except Exception:
+        return "_Translation timed out or failed - please try again._"
 
 
 @st.cache_data(show_spinner=False)
