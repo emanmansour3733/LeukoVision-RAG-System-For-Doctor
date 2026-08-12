@@ -81,6 +81,8 @@ TOP_K = 5
 CONVERSATION_MEMORY_TURNS = 4          # how many previous Q&A pairs to keep as context
 LOW_CONFIDENCE_THRESHOLD = 0.45        # below this avg. similarity, flag the answer
 MIN_SOURCE_SIMILARITY = 0.35           # chunks below this are noise, not real matches - drop them
+AVATAR_USER = "🩺"
+AVATAR_ASSISTANT = "⚕️"
 
 st.set_page_config(
     page_title="OncoRAG - Oncology Clinical Assistant",
@@ -197,8 +199,16 @@ st.markdown(
         font-family: var(--font-body);
     }
 
-    /* Section headers - serif display face carries the identity */
-    h2, h3 { font-family: var(--font-display) !important; color: var(--oncorag-primary-deep) !important; font-weight: 700 !important; }
+    /* Section headers - serif display face carries the identity, with a
+       thin accent rule underneath as a quiet signature detail */
+    h2, h3 {
+        font-family: var(--font-display) !important;
+        color: var(--oncorag-primary-deep) !important;
+        font-weight: 700 !important;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid var(--oncorag-border);
+        margin-bottom: 1rem !important;
+    }
 
     /* ---------------------------------------------------------------- */
     /* Chat bubbles - hairline, no drop shadow                           */
@@ -211,6 +221,16 @@ st.markdown(
         border: 1px solid var(--oncorag-border);
         background: #ffffff;
     }
+
+    /* Avatar circles - flat palette colors instead of Streamlit's default clash */
+    div[data-testid="stChatMessageAvatarUser"] {
+        background-color: var(--oncorag-primary) !important;
+    }
+    div[data-testid="stChatMessageAvatarAssistant"] {
+        background-color: var(--oncorag-primary-deep) !important;
+    }
+    div[data-testid="stChatMessageAvatarUser"] svg,
+    div[data-testid="stChatMessageAvatarAssistant"] svg { fill: #ffffff !important; }
 
     div[data-testid="stChatInput"] {
         border-radius: 6px;
@@ -242,6 +262,9 @@ st.markdown(
     .stButton > button[kind="primary"]:hover { background: var(--oncorag-primary-deep); border-color: var(--oncorag-primary-deep); color: #fff; }
 
     .stButton > button p { font-size: 0.86rem; }
+
+    /* Give button rows (example-question chips, follow-ups) breathing room */
+    div[data-testid="stHorizontalBlock"] { gap: 0.6rem; }
 
     /* ---------------------------------------------------------------- */
     /* Metrics - flat hairline panel, mono figures                       */
@@ -387,11 +410,78 @@ if "arabic_translations" not in st.session_state:
 if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
 
+INDEX_BATCH_SIZE = 40  # chunks embedded/inserted per batch - keeps peak memory down
+
+
+def build_index_from_chunks(chunks: List, embedding_model, progress_callback=None) -> None:
+    """Embed and insert chunks in small batches instead of all at once.
+
+    Encoding hundreds of chunks in a single call spikes memory (the full
+    batch of vectors + intermediate tensors sit in RAM at once on top of
+    the embedding model itself). Batching keeps peak memory roughly
+    constant regardless of corpus size - important on memory-constrained
+    hosts like Streamlit Community Cloud's free tier.
+    """
+    if pipeline.database_exists(PERSIST_DIRECTORY):
+        pipeline.delete_vector_store(PERSIST_DIRECTORY)
+
+    total = len(chunks)
+    first_batch, rest = chunks[:INDEX_BATCH_SIZE], chunks[INDEX_BATCH_SIZE:]
+    vector_store = pipeline.create_vector_store(first_batch, embedding_model, PERSIST_DIRECTORY)
+    done = len(first_batch)
+    if progress_callback:
+        progress_callback(done, total)
+
+    # Only continue in batches if the pipeline handed back a store we can
+    # append to (langchain's Chroma wrapper exposes add_documents). If not,
+    # fall back to a single call with everything - still correct, just
+    # without the memory benefit for this one run.
+    if rest:
+        if vector_store is not None and hasattr(vector_store, "add_documents"):
+            for i in range(0, len(rest), INDEX_BATCH_SIZE):
+                batch = rest[i : i + INDEX_BATCH_SIZE]
+                vector_store.add_documents(batch)
+                done += len(batch)
+                if progress_callback:
+                    progress_callback(done, total)
+        else:
+            pipeline.create_vector_store(chunks, embedding_model, PERSIST_DIRECTORY)
+            if progress_callback:
+                progress_callback(total, total)
+
+
 # --------------------------------------------------------------------------
 # System status
 # --------------------------------------------------------------------------
 chunk_count = get_chunk_count(PERSIST_DIRECTORY)
 doc_count = get_doc_count()
+
+# If PDFs already exist in the documents folder (e.g. shipped in the repo)
+# but no index exists yet - typically because the persisted vector store
+# doesn't survive a fresh deploy on Streamlit Cloud - build it once
+# automatically instead of forcing a manual click on every cold start.
+if (
+    chunk_count == 0
+    and has_api_key
+    and not pipeline._load_errors
+    and not st.session_state.get("_auto_build_attempted")
+):
+    st.session_state._auto_build_attempted = True
+    existing_pdfs_at_start = sorted(Path(DOCUMENTS_DIR).glob("*.pdf")) if os.path.isdir(DOCUMENTS_DIR) else []
+    if existing_pdfs_at_start:
+        with st.spinner("Setting up the knowledge base for the first time..."):
+            try:
+                docs = pipeline.load_all_documents(DOCUMENTS_DIR)
+                cleaned = pipeline.preprocess_documents(docs)
+                chunks = pipeline.chunk_documents(cleaned, CHUNK_SIZE, CHUNK_OVERLAP)
+                embedding_model = get_embedding_model()
+                build_index_from_chunks(chunks, embedding_model)
+                refresh_index_caches()
+                chunk_count = get_chunk_count(PERSIST_DIRECTORY)
+                doc_count = get_doc_count()
+            except Exception:
+                pass  # fall through - Knowledge Base page still offers a manual rebuild
+
 pipeline_ready = chunk_count > 0 and has_api_key and not pipeline._load_errors
 
 
@@ -518,8 +608,10 @@ def render_source_block(sources: List[Dict], key_prefix: str) -> None:
     with st.expander(f"Sources ({len(sources)})"):
         for i, src in enumerate(sources):
             st.markdown(
-                f"**{src['filename']}** (page {src['page']}) - "
-                f"similarity {src['similarity']:.0%}"
+                f"**{src['filename']}** &nbsp;"
+                f"<span style='font-family:var(--font-mono);font-size:0.82rem;color:var(--oncorag-ink-soft);'>"
+                f"p.{src['page']} · {src['similarity']:.0%} match</span>",
+                unsafe_allow_html=True,
             )
             st.caption(src["text"][:400] + ("..." if len(src["text"]) > 400 else ""))
 
@@ -706,7 +798,7 @@ if page == "Chat":
 
     history_length = len(st.session_state.chat_history)
     for idx, message in enumerate(st.session_state.chat_history):
-        with st.chat_message(message["role"]):
+        with st.chat_message(message["role"], avatar=AVATAR_USER if message["role"] == "user" else AVATAR_ASSISTANT):
             st.markdown(message["content"])
 
             if message["role"] == "assistant":
@@ -762,10 +854,10 @@ if page == "Chat":
 
     if user_query:
         st.session_state.chat_history.append({"role": "user", "content": user_query})
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar=AVATAR_USER):
             st.markdown(user_query)
 
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=AVATAR_ASSISTANT):
             try:
                 with st.spinner("Retrieving relevant context..."):
                     prep = prepare_query(
@@ -845,26 +937,32 @@ elif page == "Knowledge Base":
     col_b.metric("Indexed chunks", chunk_count)
 
     def build_index() -> bool:
-        """Load -> preprocess -> chunk -> embed -> index. Returns True on success."""
-        with st.spinner("Loading, chunking, embedding, and indexing documents..."):
-            try:
+        """Load -> preprocess -> chunk -> embed -> index (in memory-friendly batches)."""
+        try:
+            with st.spinner("Loading and chunking documents..."):
                 docs = pipeline.load_all_documents(DOCUMENTS_DIR)
                 cleaned = pipeline.preprocess_documents(docs)
                 chunks = pipeline.chunk_documents(cleaned, CHUNK_SIZE, CHUNK_OVERLAP)
-
-                if pipeline.database_exists(PERSIST_DIRECTORY):
-                    pipeline.delete_vector_store(PERSIST_DIRECTORY)
-
                 embedding_model = get_embedding_model()
-                pipeline.create_vector_store(chunks, embedding_model, PERSIST_DIRECTORY)
 
-                refresh_index_caches()
-                st.session_state.processed_pdf_names = {p.name for p in Path(DOCUMENTS_DIR).glob("*.pdf")}
-                st.success(f"Index built successfully: {len(chunks)} chunks indexed.")
-                return True
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Index build failed: {exc}")
-                return False
+            progress_bar = st.progress(0.0, text="Embedding and indexing 0 / 0 chunks...")
+
+            def _on_progress(done: int, total: int) -> None:
+                progress_bar.progress(
+                    done / total if total else 1.0,
+                    text=f"Embedding and indexing {done} / {total} chunks...",
+                )
+
+            build_index_from_chunks(chunks, embedding_model, progress_callback=_on_progress)
+            progress_bar.empty()
+
+            refresh_index_caches()
+            st.session_state.processed_pdf_names = {p.name for p in Path(DOCUMENTS_DIR).glob("*.pdf")}
+            st.success(f"Index built successfully: {len(chunks)} chunks indexed.")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Index build failed: {exc}")
+            return False
 
     os.makedirs(DOCUMENTS_DIR, exist_ok=True)
     if "processed_pdf_names" not in st.session_state:
