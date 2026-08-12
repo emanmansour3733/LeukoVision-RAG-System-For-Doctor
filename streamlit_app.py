@@ -186,15 +186,26 @@ st.markdown(
         color: var(--oncorag-ink);
     }}
 
-    * {{ transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease; }}
+    /* Theme-swap transition, scoped to the handful of elements whose
+       colors actually change with dark mode - NOT a universal `*` rule.
+       That was the real cause of the lag: `*` makes the browser watch
+       every property on every node (including the hundreds Streamlit
+       redraws on each rerun), which forces a full style recalculation on
+       almost every interaction. */
+    .stApp, section[data-testid="stSidebar"], .block-container,
+    div[data-testid="stChatMessage"], div[data-testid="stChatInput"],
+    div[data-testid="stMetric"], div[data-testid="stExpander"],
+    section[data-testid="stFileUploaderDropzone"], .oncorag-badge, body {{
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }}
 
     @keyframes oncorag-rise {{
         from {{ opacity: 0; transform: translateY(6px); }}
         to   {{ opacity: 1; transform: translateY(0); }}
     }}
     @keyframes oncorag-trace {{
-        0%   {{ background-position: -220px 0; }}
-        100% {{ background-position: 420px 0; }}
+        0%   {{ transform: translateX(-220px); }}
+        100% {{ transform: translateX(calc(100% + 220px)); }}
     }}
     @media (prefers-reduced-motion: reduce) {{
         * {{ animation: none !important; transition: none !important; }}
@@ -286,13 +297,13 @@ st.markdown(
     }}
     .oncorag-header::after {{
         content: "";
-        position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+        position: absolute; left: 0; bottom: 0; height: 3px; width: 220px;
         background: repeating-linear-gradient(
             90deg,
             var(--oncorag-accent) 0px, var(--oncorag-accent) 26px,
             transparent 26px, transparent 40px
         );
-        background-size: 220px 3px;
+        will-change: transform;
         animation: oncorag-trace 5.5s linear infinite;
         opacity: 0.9;
     }}
