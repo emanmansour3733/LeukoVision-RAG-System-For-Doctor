@@ -35,6 +35,70 @@ Deployment:
     (see .env.example) - 08_llm.py loads it automatically.
 """
 
+def _stub_torchvision() -> None:
+    """Make `import torchvision...` succeed with a harmless empty stub.
+
+    This app is text-only (RAG over PDFs) and never touches torchvision -
+    it's deliberately left out of requirements.txt to keep the deploy
+    lean (see the comment there). But `transformers`' lazily-loaded
+    "fast" image processors (aria, beit, detr, sam, yolos, ...) import
+    torchvision at module scope, and Streamlit's background watcher
+    walks every attribute exposed by every imported package on every
+    rerun (to decide which local files to watch) - which forces each of
+    those "_fast" processors to import, and fail, every single time.
+    That's what was showing up in the deploy logs as hundreds of
+    repeated "Examining the path of transformers.models.X raised:
+    ModuleNotFoundError: No module named 'torchvision'" tracebacks, and
+    the CPU cost of that repeating on every rerun is what made the app
+    unresponsive enough for Streamlit Cloud's health check to reset the
+    connection and kill it.
+
+    Registering empty stub modules under torchvision's expected names
+    makes those imports succeed instead of raising - nothing in this
+    app ever calls into torchvision, so the stub is never actually
+    exercised. If torchvision is genuinely installed (e.g. a future
+    requirements.txt change), this is a no-op and the real package wins.
+    """
+    import sys
+    import types as _types
+
+    if "torchvision" in sys.modules:
+        return
+
+    def _register(name: str) -> _types.ModuleType:
+        module = _types.ModuleType(name)
+        sys.modules[name] = module
+        return module
+
+    def _unavailable(*_args, **_kwargs):
+        raise NotImplementedError(
+            "torchvision is not installed; this app does not perform "
+            "image processing."
+        )
+
+    torchvision = _register("torchvision")
+    torchvision.__path__ = []  # mark as a package, as real torchvision is
+
+    transforms = _register("torchvision.transforms")
+    transforms_v2 = _register("torchvision.transforms.v2")
+    transforms_v2_functional = _register("torchvision.transforms.v2.functional")
+    transforms_v2.functional = transforms_v2_functional
+    transforms.v2 = transforms_v2
+    torchvision.transforms = transforms
+
+    io_module = _register("torchvision.io")
+    io_module.read_image = _unavailable
+    torchvision.io = io_module
+
+    ops = _register("torchvision.ops")
+    ops_boxes = _register("torchvision.ops.boxes")
+    ops_boxes.batched_nms = _unavailable
+    ops.boxes = ops_boxes
+    torchvision.ops = ops
+
+
+_stub_torchvision()
+
 import concurrent.futures
 import importlib.util
 import os
